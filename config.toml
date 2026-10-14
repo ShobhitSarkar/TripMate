@@ -1,0 +1,61 @@
+# memebot configuration. Every number here is a guess until the data says otherwise.
+
+[exchange]
+name = "okx"              # any ccxt exchange id that lists these pairs
+timeframe = "1h"
+
+[universe]
+benchmark = "BTC/USDT"
+symbols = [
+  "DOGE/USDT", "SHIB/USDT", "PEPE/USDT", "WIF/USDT", "BONK/USDT",
+  "FLOKI/USDT", "TRUMP/USDT", "PENGU/USDT", "MEW/USDT", "BOME/USDT",
+  "TURBO/USDT", "NEIRO/USDT", "PNUT/USDT", "MOODENG/USDT", "GOAT/USDT",
+  "DOGS/USDT", "NOT/USDT", "PEOPLE/USDT", "MEME/USDT", "ACT/USDT",
+]
+
+[costs]
+taker_fee = 0.001          # 0.10% per side (OKX regular tier)
+half_spread_bps = 5        # paid on every market order in the bar fill model
+impact_coef = 1.0          # square-root impact: coef * daily_vol * sqrt(order / daily_volume)
+max_participation = 0.01   # never take more than 1% of an average bar's volume
+latency_bps = 5            # paper mode: extra adverse move between decision and fill
+
+[portfolio]
+initial_cash = 10000.0
+min_trade_notional = 10.0
+rebalance_threshold = 0.02 # skip trades smaller than 2% of equity (fee churn)
+
+[risk]
+max_weight = 0.25          # max fraction of equity in one coin
+max_gross = 1.0            # spot only, no leverage
+min_adv_quote = 1000000.0  # ignore coins trading < $1M/day
+max_pct_adv = 0.002        # position <= 0.2% of a coin's daily volume
+stop_loss = 0.15           # exit a coin 15% below average entry
+stop_cooldown_bars = 24
+daily_loss_limit = 0.08    # flat for the rest of the UTC day after -8%
+max_drawdown_halt = 0.40   # flat and halted for good after -40% from peak
+
+[strategy]
+name = "momentum"
+
+[strategy.params]
+lookback = 72
+skip = 1
+top_n = 4
+regime_ma = 200
+min_momentum = 0.0
+
+# The go-live gate. Decide these BEFORE looking at paper results.
+[gate]
+min_days = 60
+min_trades = 100
+min_excess_return = 0.0          # total return minus BTC buy-and-hold, after costs
+require_sharpe_above_btc = true
+max_drawdown = 0.35
+rolling_window_days = 14
+min_rolling_win_rate = 0.60      # beat BTC in >= 60% of rolling 14-day windows
+max_top5_profit_share = 0.50     # top 5 sells must be < 50% of gross profit
+
+[live]
+max_order_usd = 50.0
+max_total_usd = 500.0
