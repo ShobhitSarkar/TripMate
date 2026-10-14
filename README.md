@@ -91,7 +91,8 @@ Neither starter strategy works. Over the last year, both lost more than holding 
 | BTC hold | about -25% | -0.45 | 49.8% |
 | meme basket hold | about -47% | -0.62 | 61% |
 
-In the momentum sweep, 0 of 12 parameter sets beat BTC either in-sample or out-of-sample.
+In the parameter sweeps, 0 of 12 momentum sets and 0 of 18 breakout sets beat BTC, either
+in-sample or out-of-sample.
 The main costs are turnover (about 100x per year, so roughly $600–800 in fees on $10k plus
 slippage) and meme coins' tendency to reverse right after you buy the breakout. These are
 starting points to iterate on, not something to deploy.
