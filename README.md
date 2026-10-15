@@ -25,11 +25,28 @@ python -m memebot backtest --strategy breakout --split 0.6   # in-sample / out-o
 python -m memebot sweep --strategy momentum    # tune on first 60%, judge on last 40%
 python -m memebot paper                        # forward paper trading, runs until stopped
 python -m memebot report                       # paper results + go-live gate (exit 0 = passed)
+python -m memebot export --out site/status.json   # dashboard data (open dashboard/index.html next to it)
 pytest
 ```
 
 Run `paper` somewhere that stays up (a small VPS, `tmux`, or a systemd service). It
 stores everything in `paper.db` and picks up where it left off after a restart.
+
+## Running it 24/7 (free, on GitHub Actions)
+
+`.github/workflows/paper-trade.yml` runs the paper trader every 15 minutes. Each run:
+
+1. restores `paper.db` from the `gh-pages` branch
+2. processes any newly closed hourly bar
+3. exports `status.json`
+4. publishes the dashboard and state back to `gh-pages`
+
+The **dashboard** is at `https://<user>.github.io/<repo>/`. It reloads the bot's state
+every minute and streams live OKX prices every 10 seconds, so equity and P&L move in real
+time between bot runs. To reset the paper account, delete the `gh-pages` branch.
+
+GitHub's scheduler can run late during busy periods. The bot only acts on closed hourly
+candles, so a late run just means a later fill, which the paper fills price honestly.
 
 ## Why the paper results should be believable
 

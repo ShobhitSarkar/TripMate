@@ -150,6 +150,13 @@ def cmd_report(cfg: Config, args) -> None:
     sys.exit(0 if all(c.passed for c in checks) else 2)
 
 
+def cmd_export(cfg: Config, args) -> None:
+    from .paper import export_status
+    st = export_status(cfg, args.db, args.out)
+    print(f"wrote {args.out}: equity ${st['equity']:,.2f}, {len(st['positions'])} positions, "
+          f"{len(st['equity_curve'])} snapshots")
+
+
 def cmd_live(cfg: Config, args) -> None:
     from .paper import Store, gate_report, run_forward
     if not Path(args.paper_db).exists():
@@ -184,6 +191,10 @@ def main(argv: list[str] | None = None) -> None:
     r = sub.add_parser("report", help="paper-trading performance and go-live gate")
     r.add_argument("--db", default="paper.db")
 
+    e = sub.add_parser("export", help="write a JSON status snapshot for the dashboard")
+    e.add_argument("--db", default="paper.db")
+    e.add_argument("--out", default="site/status.json")
+
     lv = sub.add_parser("live", help="REAL MONEY. Requires a passed gate and MEMEBOT_ENABLE_LIVE=yes")
     lv.add_argument("--paper-db", default="paper.db")
     lv.add_argument("--db", default="live.db")
@@ -192,4 +203,4 @@ def main(argv: list[str] | None = None) -> None:
     args = p.parse_args(argv)
     cfg = load_config(args.config)
     {"fetch": cmd_fetch, "backtest": cmd_backtest, "sweep": cmd_sweep, "paper": cmd_paper,
-     "report": cmd_report, "live": cmd_live}[args.cmd](cfg, args)
+     "report": cmd_report, "export": cmd_export, "live": cmd_live}[args.cmd](cfg, args)

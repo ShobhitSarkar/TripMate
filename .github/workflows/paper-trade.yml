@@ -1,0 +1,67 @@
+# Runs the paper trader on a schedule and publishes the dashboard to GitHub Pages.
+#
+# State (paper.db) lives on the gh-pages branch next to the dashboard, so every run
+# restores it, processes any newly closed bar, and republishes. The bot decides on
+# hourly bars; running every 15 minutes keeps the dashboard fresh and makes a late
+# GitHub schedule cost at most one quarter-hour.
+name: paper-trade
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+  push:
+    branches: [claude/meme-coin-trading-bot-7sqh6s]
+    paths: ["memebot/**", "dashboard/**", "config.toml", "requirements.txt", ".github/workflows/paper-trade.yml"]
+
+concurrency:
+  group: paper-trade
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Unit tests
+        run: pytest -q
+
+      - name: Restore paper state
+        run: |
+          if git fetch --depth=1 origin gh-pages 2>/dev/null; then
+            git show FETCH_HEAD:paper.db > paper.db 2>/dev/null || rm -f paper.db
+          fi
+          ls -la paper.db 2>/dev/null || echo "no previous state: starting a fresh paper account"
+
+      - name: Trade one bar (paper)
+        run: python -m memebot paper --once --db paper.db
+
+      - name: Export dashboard data
+        run: |
+          mkdir -p site
+          python -m memebot export --db paper.db --out site/status.json
+          python -m memebot report --db paper.db || true
+
+      - name: Publish to gh-pages
+        run: |
+          cp dashboard/index.html site/index.html
+          cp paper.db site/paper.db
+          touch site/.nojekyll
+          cd site
+          git init -q -b gh-pages
+          git add -A
+          git -c user.name="memebot" -c user.email="memebot@users.noreply.github.com" \
+            commit -qm "paper tick $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" gh-pages

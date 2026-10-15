@@ -148,8 +148,11 @@ def run_forward(cfg: Config, db_path: str, live: bool = False, once: bool = Fals
             targets = strategy.target_weights(view) if len(panel) >= strategy.warmup else {}
             n_events = len(risk.events)
             targets = risk.apply(targets, decision_ts, equity, marks, ex.avg_cost, adv.iloc[t].to_dict(), held)
-            for ts, msg in risk.events[n_events:]:
+            new_events = [[ts.isoformat(), msg] for ts, msg in risk.events[n_events:]]
+            for ts, msg in new_events:
                 log(f"RISK {msg}")
+            if new_events:
+                store.put("events", (store.get("events", []) + new_events)[-100:])
             fills = rebalance(ex, targets, marks, pd.Timestamp.now(tz="UTC"),
                               cfg.portfolio.min_trade_notional, cfg.portfolio.rebalance_threshold)
 
@@ -169,3 +172,77 @@ def run_forward(cfg: Config, db_path: str, live: bool = False, once: bool = Fals
         next_close = decision_ts + step
         wait = (next_close - pd.Timestamp.now(tz="UTC")).total_seconds() + 15
         time.sleep(max(wait, 15))
+
+
+def export_status(cfg: Config, db_path: str, out: str | Path) -> dict:
+    """Write a JSON snapshot of the paper account for the dashboard."""
+    store = Store(db_path)
+    eq = store.load_equity()
+    fills = store.load_fills()
+    account = store.get("account") or {"cash": cfg.portfolio.initial_cash, "holdings": {}, "avg_cost": {}}
+    strategy = build_strategy(cfg.strategy.name, cfg.strategy.params)
+    bench = cfg.universe.benchmark
+
+    client = make_client(cfg.exchange.name)
+    held = [s for s, q in account["holdings"].items() if q > 0]
+    tickers = client.fetch_tickers(sorted(set(held) | {bench})) if held or bench else {}
+    prices = {s: float(t["last"]) for s, t in tickers.items() if t.get("last")}
+
+    positions = []
+    for s in held:
+        q, cost, px = account["holdings"][s], account["avg_cost"].get(s, 0.0), prices.get(s)
+        value = q * px if px else q * cost
+        positions.append({"symbol": s, "qty": q, "avg_cost": cost, "price": px, "value": value,
+                          "pnl": value - q * cost, "pnl_pct": (px / cost - 1) if px and cost else None})
+    equity_now = account["cash"] + sum(p["value"] for p in positions)
+
+    regime = None
+    regime_ma = getattr(strategy, "regime_ma", 0)
+    if regime_ma:
+        candles = client.fetch_ohlcv(bench, cfg.exchange.timeframe, limit=regime_ma + 1)[:-1]
+        closes = [c[4] for c in candles]
+        if len(closes) >= regime_ma:
+            ma = sum(closes[-regime_ma:]) / regime_ma
+            regime = {"benchmark": bench, "price": closes[-1], "ma": ma, "ma_bars": regime_ma,
+                      "risk_on": closes[-1] > ma}
+
+    summary = None
+    if len(eq) >= 2:
+        s, b, wr, checks = gate_report(cfg, store)
+        clean = lambda d: {k: (None if isinstance(v, float) and v != v else v) for k, v in d.items()}
+        summary = {"strategy": clean(s), "benchmark": clean(b),
+                   "rolling_win_rate": None if wr != wr else wr,
+                   "gate": [{"name": c.name, "passed": bool(c.passed), "value": c.shown(),
+                             "threshold": c.threshold} for c in checks],
+                   "gate_passed": all(c.passed for c in checks)}
+
+    start_bench = eq["benchmark_price"].iloc[0] if len(eq) else None
+    status = {
+        "generated_at": pd.Timestamp.now(tz="UTC").isoformat(),
+        "mode": store.get("mode", "paper"),
+        "exchange": cfg.exchange.name,
+        "timeframe": cfg.exchange.timeframe,
+        "strategy": strategy.describe(),
+        "benchmark": bench,
+        "universe": cfg.universe.symbols,
+        "initial_cash": cfg.portfolio.initial_cash,
+        "taker_fee": cfg.costs.taker_fee,
+        "last_bar": store.get("last_bar"),
+        "started_at": eq.index[0].isoformat() if len(eq) else None,
+        "cash": account["cash"],
+        "equity": equity_now,
+        "benchmark_price": prices.get(bench),
+        "benchmark_start_price": start_bench,
+        "positions": positions,
+        "targets": json.loads(eq["targets"].iloc[-1]) if len(eq) else {},
+        "regime": regime,
+        "risk": store.get("risk", {}),
+        "risk_events": store.get("events", [])[-20:],
+        "equity_curve": [{"t": t.isoformat(), "equity": r.equity, "benchmark_price": r.benchmark_price}
+                         for t, r in eq.iterrows()],
+        "fills": [f.to_dict() for f in fills[-100:]][::-1],
+        "summary": summary,
+    }
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    Path(out).write_text(json.dumps(status, default=str))
+    return status
